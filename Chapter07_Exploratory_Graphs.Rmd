@@ -1,0 +1,143 @@
+---
+title: "Chapter 07: Exploratory Graphs"
+output: html_document
+author: Nutsa Nanuashvili
+---
+
+```{r}
+suppressMessages(library(tidyverse))
+```
+
+Import data Air pollution (average PM2.5)
+```{r}
+path = "C:/Users/nutsa/Documents/Projects/EDA_PaiR/data/"
+polut_data = readr::read_csv( paste0 (path, "avgpm25.csv"), 
+                 col_types = cols( pm25 = col_double(),
+  fips = col_character(),
+  region = col_factor(),
+  longitude = col_double(),
+  latitude = col_double() ) )
+```
+Check data
+```{r}
+glimpse(polut_data)
+```
+```{r}
+levels(polut_data$region)
+
+slice_sample(polut_data, n = 10)
+```
+### Features
+
+* `fips` - 5-digit code indicating the county
+* `pm25` - average level
+* `region` - region of the country in which the county resides
+* `longitude` and `latitude` of the centroid for that county
+
+```{r}
+summary(polut_data)
+```
+
+```{r}
+boxplot(polut_data$pm25, col = "green" )
+```
+
+Drow a line at national standard of 12 micrograms
+```{r}
+boxplot(polut_data$pm25, col = "green")
+abline(h = 12)
+```
+
+Look at the points above pm25 = 15, because the standard must not exeed 12 micrograms
+```{r}
+polut_data %>%
+  filter(pm25 > 15)
+```
+
+```{r}
+suppressMessages(library(maps))
+
+maps::map("county", "california")
+with(filter(polut_data, pm25 >15), points (longitude, latitude, col = "red" ))
+```
+
+
+### Histogram
+```{r}
+hist(polut_data$pm25, col = "blue", breaks = 100)
+rug(polut_data$pm25)
+```
+
+Draw two lines, one at the median of the data and one at 12, the level of the standard
+```{r}
+hist(polut_data$pm25, col = "blue")
+rug(polut_data$pm25)
+abline(v = median(polut_data$pm25), col = "magenta", lwd = 4)
+abline(v = 12, lwd = 3)
+```
+
+
+### Barplot
+Illustrate the number of counties in each region - west and east
+```{r}
+
+region = polut_data$region
+table(region) %>% barplot(col = "grey", main = "County Count for Each Region")
+```
+
+
+Difference in PM2.5 levels between the eastern and western parts of the U.S.
+
+```{r}
+boxplot(pm25 ~ region, data = polut_data, col = "wheat", main = "PM25 per region of the country")
+abline(h = 12, col = "gray")
+```
+
+
+Plotting 2 histograms of PM25 for east and west regions separately
+
+```{r}
+# dividing data into regions
+east = polut_data %>% filter(region =="east") 
+west = polut_data %>% filter (region == "west") 
+
+# set up the margins and location of the plot
+par(mfrow = c(2,1), mar = c(3, 3, 1, 1))
+# plot data for each region
+hist(east$pm25, col = "blue", main = "PM25 level in east counties")
+hist(west$pm25, col = "blue", main = "PM25 level in west counties")
+
+```
+
+
+### Scatterplots
+
+`with` evaluates _“an R expression in an environment constructed from data”_. 
+
+```{r}
+# plot pm25 as a function of latitude per region
+with(polut_data, plot(latitude, pm25, col = polut_data$region))
+#lty defines the line style
+abline(h = 12, col = "blue", lty = 2)
+```
+
+To see which region mapped on which color we have to look at factor levels because 1st level `col = 1` is black (the default color) and `col = 2` is red.
+
+Compare east and west
+```{r}
+par(mfrow = c(1, 2), mar = c(5, 4, 2, 1))
+
+plot(west$latitude, west$pm25, main = "West")
+abline(h = 12, col = "blue",lwd = 2,  lty = 3)
+plot(east$latitude, east$pm25, main = "East")
+abline(h = 12, col = "blue", lwd = 2, lty = 3)
+```
+
+
+
+
+
+
+
+
+

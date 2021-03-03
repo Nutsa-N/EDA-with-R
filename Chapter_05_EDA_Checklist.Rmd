@@ -1,0 +1,218 @@
+---
+title: "Chapter 5: Exploratory Data Analysis Checklist"
+output: html_document
+author: Nutsa Nanuashvili
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Eda checklist:
+
+1. Formulate your question 
+4. Run str()
+5. Look at the top and the bottom of your data
+6. Check your “n”s
+7. Validate with at least one external data source
+8. Try the easy solution first
+9. Challenge your solution
+10. Follow up
+
+## Question: 
+## *Which counties in the United States have the highest levels of ambient ozone pollution?*
+
+Load packages
+```{r, message=False, warning=False}
+library(tidyverse)
+```
+### Read the data
+```{r, warning=False}
+ozone <- read_csv("data/hourly_44201_2014.csv", 
+                   col_types = "ccccinnccccccncnncccccc" )                 
+```
+Get the general data overview ( dimensions, column names and types) with `glimpse` from `dplyr` 
+```{r}
+glimpse(ozone)
+```
+Clean up some column names using `janitor` package
+```{r}
+ozone = janitor::clean_names(ozone)
+```
+
+Check the data with new names
+```{r}
+glimpse(ozone)
+```
+
+Top and bottom rows of data
+```{r}
+slice_head(ozone, n = 5)
+
+slice_tail(ozone, n = 5)
+```
+And the random sample of rows
+```{r}
+slice_sample(ozone, n = 10)
+```
+
+## 6. Check your “n”s
+
+Let's check data for some odd or incorrect values. For instance, we know that the air quality monitor was taking measurements every hour. Let's see if every hour is represented per monitor in the entire country. The feature for measurement on each hour - `time_local`
+```{r}
+table(ozone$time_local)
+```
+Some measurements, unlike the majority, are taken a bit off the exact hour. Check the state, county and date that has weird time slots for measurement - 00:01 or 13:14
+```{r}
+ozone %>%
+  # take one of the strange time slots 
+  filter (time_local == "13:14") %>%
+  # look at state and county that the monitor belongs to
+ select (starts_with("state"), 
+        starts_with("county"),
+        ends_with("local")
+        )           
+        
+```
+Check all the measurement by this strange monitor on the this date "2014-09-30" 
+```{r}
+ozone %>%
+  filter(state_code == "36",
+    date_local == "2014-09-30",
+         county_code == "033") %>%
+  select(ends_with("local"),
+         sample_measurement)
+```
+We can see that only this monitor records measurement in these random times.
+
+We checked each hour of measurements. Now let's check which states are represented by this data. It should be nationwide data (50 states).
+```{r}
+ozone %>%
+  select(starts_with ("state") ) %>%
+           distinct()
+```
+52 states (?!) Well, it includes Puerto Rico & District Of Columbia, too. So, all good :)
+
+## 7. Validate with at least one external data source
+
+As of 2015, based on [National Ambient Air Quality Standards](https://www.epa.gov/criteria-air-pollutants/naaqs-table) Ozone(O3) level should be no more than **0.070 ppm**  _"Annual fourth-highest daily maximum 8-hour concentration, averaged over 3 years"_ 
+
+Let's check which states, if any, violate this standard
+```{r, message = FALSE}
+summary(ozone$sample_measurement)
+quantile(ozone$sample_measurement, seq(0, 1, 0.1))
+ozone %>%
+  select(starts_with("state"), contains("measure")) %>%
+  group_by(state_name) %>%
+  summarize(max_measurement = max(sample_measurement)) %>%
+  ungroup() %>%
+  arrange(desc(max_measurement))
+      
+```               
+Almost every state has some violations measured each hour but overall only 10 % of data is above the standard level.
+
+##  8. Try the easy solution first
+
+The question was which counties in US have the highest level of ozone? By _level_ of ozone, for the simplicity, we'll  take here the average ozone measured over the entire year
+
+```{r, message = FALSE}
+ranking = ozone %>%
+  group_by(state_name, county_name) %>%
+  summarize(average_ozone_level = mean (sample_measurement, na.rm = T) ) %>%
+  ungroup() %>%
+  arrange(desc (average_ozone_level) )
+```
+See the top & bottom 10 counties
+```{r}
+head(ranking, 10)
+
+tail(ranking, 10)
+```
+Let's focus on the county with the highest ozone level - _Mariposa, California_
+
+Check how much data do we have about this county
+```{r}
+ozone %>% filter (state_name == "California", county_name == "Mariposa") %>% count()
+```
+After making sure that this number is valid 24h/day * 365 days/year + some other external measurements, let's see the ozone level pattern per month over the year
+```{r}
+ ozone %>% mutate (date_local = parse_datetime(date_local, format = "%Y-%m-%d") ) -> ozone
+```
+
+Average ozone level per month for this county
+```{r, message = F}
+ozone %>% 
+  filter (state_name == "California", county_name == "Mariposa") %>%
+  # create and coerce month column to factor
+  mutate(month = factor(months(date_local), levels = month.name)) %>%
+  group_by(month) %>%
+  summarize(average_ozone_level = round(mean(sample_measurement), 4) ) %>%
+  ungroup()
+
+```
+1. Ozone level appears to be higher in summer months compared to the rest of the year
+2. missing months: November and December
+
+Let's investigate the same way the lowest level county
+```{r}
+ozone %>% filter (state_name == "Oklahoma", county_name == "Caddo") %>% count()
+```
+The count is way lowet than would be expected from 24h/day * 365 days/year calculation
+
+```{r, message = F}
+ozone %>% 
+  filter (state_name == "Oklahoma", county_name == "Caddo") %>%
+  # create and coerce month column to factor
+  mutate(month = factor(months(date_local), levels = month.name)) %>%
+  group_by(month) %>%
+  summarize(average_ozone_level = round(mean(sample_measurement), 4) ) %>%
+  ungroup()
+```
+1. Last 3 months of the year are missing
+2. readings are so low in the winter that they might not even be recorded during these months
+
+## 9. Challenge your solution
+
+We chose the simplest possible solution for the given question. One way to see how robust our solution is for other years, besides the year of 2014, is to use _bootstrap sampling with replacement_. This method will simulate the data changing from year to year. 
+```{r}
+# number of rows a sample size
+N = nrow(ozone)
+# index for shuffling the dataset with replacement
+idx = sample(x = N, size = N, replace = T)
+# create a second, resampled data
+ozone02 = ozone[idx, ]
+```
+Repeat the ranking process for the generated data
+```{r, message = FALSE}
+ranking02 = ozone02 %>%
+  group_by(state_name, county_name) %>%
+  summarize(average_ozone_level = mean (sample_measurement, na.rm = T) ) %>%
+  ungroup() %>%
+  arrange(desc (average_ozone_level) )
+```
+Combine the top and bottom county results from the 2 data
+```{r}
+compare_top = cbind(head(ranking, 10),
+                head(ranking02, 10))
+as.data.frame(compare_top)
+```
+```{r}
+compare_bottom = cbind(tail(ranking, 10),
+                       tail(ranking02, 10))
+as.data.frame(compare_bottom)
+```
+```{r}
+ranking02 %>%
+    select(average_ozone_level) %>%
+    max()
+```
+
+We can see that the top ranking counties are almost similar from the original da resampled data. Same goes for the bottom level counties.
+
+
+## 10. Follow up
+
+Questions to ask after first round of simple EDA:
+**1. Do you have the right data?**  
+**2. Do you need other data?**
+**3. Do you have the right question?**
